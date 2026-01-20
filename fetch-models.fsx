@@ -81,8 +81,33 @@ let filterModels (models: ModelData[]) (whitelist: string[]) (blacklist: string[
         passesWhitelist && passesBlacklist
     )
 
+// Get user directory dynamically using environment variables for better compatibility
+let getUserConfigPath () =
+    let userProfile = 
+        match Environment.GetEnvironmentVariable("USERPROFILE") with
+        | null | "" -> 
+            // Fallback to HOME for Unix-like systems
+            match Environment.GetEnvironmentVariable("HOME") with
+            | null | "" -> Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)
+            | home -> home
+        | profile -> profile
+    
+    let configDir = Path.Combine(userProfile, ".config", "opencode")
+    
+    // Try to find config file with either .jsonc or .json extension
+    let jsoncPath = Path.Combine(configDir, "opencode.jsonc")
+    let jsonPath = Path.Combine(configDir, "opencode.json")
+    
+    if File.Exists(jsoncPath) then
+        jsoncPath
+    elif File.Exists(jsonPath) then
+        jsonPath
+    else
+        // Default to .jsonc if neither exists
+        jsoncPath
+
 // Configuration paths
-let oldConfigPath = @"C:\Users\lk\.config\opencode\opencode.jsonc"
+let oldConfigPath = getUserConfigPath()
 let newConfigPath = @"opencode.jsonc"
 
 // Fetch models from API
