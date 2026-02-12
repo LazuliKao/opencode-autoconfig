@@ -12,7 +12,12 @@ open System.Threading.Tasks
 let jsonOptions = JsonSerializerOptions()
 jsonOptions.PropertyNameCaseInsensitive <- true
 jsonOptions.WriteIndented <- true
-
+jsonOptions.ReadCommentHandling <- JsonCommentHandling.Skip
+jsonOptions.AllowTrailingCommas <- true
+let docOptions = JsonDocumentOptions(
+    CommentHandling = JsonCommentHandling.Skip,
+    AllowTrailingCommas = true
+)
 // Data models for configuration
 [<CLIMutable>]
 type EndpointConfig = {
@@ -135,7 +140,7 @@ let generateProviderKey (name: string) =
 let replaceProvidersInConfig (configContent: string) (endpoints: (EndpointConfig * ModelData[]) list) =
     try
         // Parse the original config
-        let configNode = JsonNode.Parse(configContent)
+        let configNode = JsonNode.Parse(configContent,JsonNodeOptions(),docOptions)
         
         // Create new providers object
         let providersNode = JsonObject()
