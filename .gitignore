@@ -21,3 +21,5 @@ obj/
 .DS_Store
 Thumbs.db
 opencode.jsonc
+
+.fake

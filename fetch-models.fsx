@@ -1,8 +1,10 @@
 #!/usr/bin/env dotnet fsi
+#load "models.fsx"
 
 open System
 open System.IO
 open System.Net.Http
+open System.Text.Encodings.Web
 open System.Text.Json
 open System.Text.Json.Nodes
 open System.Text.RegularExpressions
@@ -14,6 +16,7 @@ jsonOptions.PropertyNameCaseInsensitive <- true
 jsonOptions.WriteIndented <- true
 jsonOptions.ReadCommentHandling <- JsonCommentHandling.Skip
 jsonOptions.AllowTrailingCommas <- true
+jsonOptions.Encoder <- JavaScriptEncoder.UnsafeRelaxedJsonEscaping  // 避免中文字符被转义为\uXXXX
 let docOptions = JsonDocumentOptions(
     CommentHandling = JsonCommentHandling.Skip,
     AllowTrailingCommas = true
@@ -21,7 +24,9 @@ let docOptions = JsonDocumentOptions(
 // Data models for configuration
 [<CLIMutable>]
 type EndpointConfig = {
+    key: string
     name: string
+    npm: string
     baseUrl: string
     apiKey: string
     whitelist: string[]
@@ -51,11 +56,11 @@ type ModelsResponse = {
 // Load configuration from env.json
 let loadConfig () =
     let configPath = Path.Combine(__SOURCE_DIRECTORY__, "env.json")
-    if not (File.Exists(configPath)) then
+    if not (File.Exists configPath) then
         printfn "Error: env.json not found. Please create it based on env.json.example"
         exit 1
     
-    let jsonContent = File.ReadAllText(configPath)
+    let jsonContent = File.ReadAllText configPath
     JsonSerializer.Deserialize<EnvConfig>(jsonContent, jsonOptions)
 
 // Filter models based on whitelist and blacklist
@@ -89,10 +94,10 @@ let filterModels (models: ModelData[]) (whitelist: string[]) (blacklist: string[
 // Get user directory dynamically using environment variables for better compatibility
 let getUserConfigPath () =
     let userProfile = 
-        match Environment.GetEnvironmentVariable("USERPROFILE") with
+        match Environment.GetEnvironmentVariable "USERPROFILE" with
         | null | "" -> 
             // Fallback to HOME for Unix-like systems
-            match Environment.GetEnvironmentVariable("HOME") with
+            match Environment.GetEnvironmentVariable "HOME" with
             | null | "" -> Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)
             | home -> home
         | profile -> profile
@@ -103,9 +108,9 @@ let getUserConfigPath () =
     let jsoncPath = Path.Combine(configDir, "opencode.jsonc")
     let jsonPath = Path.Combine(configDir, "opencode.json")
     
-    if File.Exists(jsoncPath) then
+    if File.Exists jsoncPath then
         jsoncPath
-    elif File.Exists(jsonPath) then
+    elif File.Exists jsonPath then
         jsonPath
     else
         // Default to .jsonc if neither exists
@@ -121,21 +126,21 @@ let fetchModels (baseUrl: string) (apiKey: string) =
         use client = new HttpClient()
         client.DefaultRequestHeaders.Add("Authorization", $"Bearer {apiKey}")
         
-        let! response = client.GetAsync($"{baseUrl}/models")
+        let! response = client.GetAsync $"{baseUrl}/models"
         response.EnsureSuccessStatusCode() |> ignore
         
         let! content = response.Content.ReadAsStringAsync()
         return content
     }
 
-// Generate provider key from endpoint name
-let generateProviderKey (name: string) =
-    name.ToLowerInvariant()
-        .Replace(" ", "-")
-        .Replace("的", "")
-        .Replace("中转站", "")
-        .Trim('-')
-
+let normalizeModelId (modelId: string) =
+    match modelId with
+    | "raptor-mini" | "oswe-vscode-prime" -> "gpt-5-mini"
+    | "kiro-auto" -> "claude-sonnet-4-6"
+    | _ when modelId.StartsWith "gemini-claude" -> modelId.Substring("gemini-".Length)
+    | _ when modelId.StartsWith "kiro" -> modelId.Substring("kiro-".Length)
+    | _ when modelId.EndsWith "-low"  || modelId.EndsWith "-high" -> modelId.Substring(0, modelId.LastIndexOf '-')
+    | _ -> modelId
 // Replace providers section in config using JsonNode
 let replaceProvidersInConfig (configContent: string) (endpoints: (EndpointConfig * ModelData[]) list) =
     try
@@ -145,24 +150,34 @@ let replaceProvidersInConfig (configContent: string) (endpoints: (EndpointConfig
         // Create new providers object
         let providersNode = JsonObject()
         
-        for (endpoint, models) in endpoints do
-            let providerKey = generateProviderKey endpoint.name
+        for endpoint, models in endpoints do
+            let providerKey =  endpoint.key
             let providerNode = JsonObject()
             
             // Add name
-            providerNode.["name"] <- JsonValue.Create(endpoint.name)
+            providerNode.["name"] <- endpoint.name
+            providerNode.["npm"] <- endpoint.npm
             
             // Add options
             let optionsNode = JsonObject()
-            optionsNode.["baseURL"] <- JsonValue.Create(endpoint.baseUrl)
-            optionsNode.["apiKey"] <- JsonValue.Create(endpoint.apiKey)
+            optionsNode.["baseURL"] <- endpoint.baseUrl
+            optionsNode.["apiKey"] <- endpoint.apiKey
             providerNode.["options"] <- optionsNode
             
             // Add models
             let modelsNode = JsonObject()
             for model in models do
-                let modelNode = JsonObject()
-                modelNode.["name"] <- JsonValue.Create(model.id)
+                let mutable modelNode = JsonObject()
+                match Models.queryModel (normalizeModelId model.id) 0.75 with 
+                | Some info ->
+                     modelNode <- JsonNode.Parse(info.raw.GetRawText(),JsonNodeOptions(),docOptions).AsObject()
+                     modelNode.["id"] <- model.id
+                     if String.Equals(info.name.Replace("-"," "), model.id.Replace("-"," "), StringComparison.OrdinalIgnoreCase) then
+                        modelNode.["name"] <- info.name
+                     else
+                        modelNode.["name"] <- $"{info.name} ({model.id})"
+                | None ->
+                     modelNode.["name"] <- model.id
                 modelsNode.[model.id] <- modelNode
             providerNode.["models"] <- modelsNode
             
@@ -172,7 +187,7 @@ let replaceProvidersInConfig (configContent: string) (endpoints: (EndpointConfig
         configNode.AsObject().["provider"] <- providersNode
         
         // Serialize back to string
-        configNode.ToJsonString(jsonOptions)
+        configNode.ToJsonString jsonOptions
     with
     | ex ->
         printfn "Error: Failed to process config: %s" ex.Message
@@ -246,11 +261,11 @@ let main () =
                     
                     printfn "\nReading old config from: %s" oldConfigPath
                     
-                    if not (File.Exists(oldConfigPath)) then
+                    if not (File.Exists oldConfigPath) then
                         printfn "Error: Config file not found at %s" oldConfigPath
                         return 1
                     else
-                        let oldConfig = File.ReadAllText(oldConfigPath)
+                        let oldConfig = File.ReadAllText oldConfigPath
                         
                         printfn "Generating new providers configuration..."
                         let newConfig = replaceProvidersInConfig oldConfig endpointModels
@@ -263,8 +278,8 @@ let main () =
                         printfn "=========================================="
                         printfn "New config file created: %s" (Path.GetFullPath(newConfigPath))
                         printfn "\nGenerated %d provider(s):" endpointModels.Length
-                        for (endpoint, models) in endpointModels do
-                            let providerKey = generateProviderKey endpoint.name
+                        for endpoint, models in endpointModels do
+                            let providerKey =  endpoint.key
                             printfn "  - %s (%d models)" providerKey models.Length
                         printfn "\nPlease manually copy this file to:"
                         printfn "  %s" oldConfigPath
