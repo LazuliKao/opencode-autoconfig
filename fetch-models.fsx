@@ -182,9 +182,23 @@ let replaceProvidersInConfig (configContent: string) (endpoints: (EndpointConfig
                             StringComparison.OrdinalIgnoreCase
                         )
                     then
-                        modelNode.["name"] <- info.name
+                        modelNode["name"] <- info.name
                     else
-                        modelNode.["name"] <- $"{info.name} ({model.id})"
+                        modelNode["name"] <- $"{info.name} ({model.id})"
+
+                    let originalCtx = modelNode.["limit"].["context"].AsValue().GetValue<int>()
+                    let originalOutput = modelNode.["limit"].["output"].AsValue().GetValue<int>()
+
+                    printfn
+                        "Original context: %d, output: %d for model %s (overflow: %b)"
+                        originalCtx
+                        originalOutput
+                        model.id
+                        (originalCtx > 2 * originalOutput)
+
+                    if originalCtx > 2 * originalOutput then
+                        modelNode["limit"]["context"] <- originalOutput * 2
+
                 | None -> modelNode.["name"] <- model.id
 
                 modelsNode.[model.id] <- modelNode
@@ -297,15 +311,6 @@ let main () =
                         printfn "  copy /Y opencode.jsonc \"%s\"" oldConfigPath
                         printfn "=========================================="
 
-                        return 0
-        with ex ->
-            printfn "Error: %s" ex.Message
-            printfn "Stack trace: %s" ex.StackTrace
-            return 1
-    }
-
-// Run
-main().Result |> exit
                         return 0
         with ex ->
             printfn "Error: %s" ex.Message
