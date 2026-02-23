@@ -28,7 +28,6 @@ type ModelInfo =
 type ProviderModels =
     { id: string
       name: string
-      api: string
       models: ModelInfo list }
 
 // JSON 反序列化模块
@@ -138,8 +137,8 @@ module JsonParser =
         | _ -> None
 
     let parseProvider (providerId: string) (element: JsonElement) : ProviderModels option =
-        match (getStringValue element "name", getStringValue element "api") with
-        | (Some name, Some api) ->
+        match (getStringValue element "name") with
+        | (Some name) ->
             let models =
                 match parseJsonElement element "models" with
                 | Some modelsEl ->
@@ -154,7 +153,6 @@ module JsonParser =
             Some
                 { id = providerId
                   name = name
-                  api = api
                   models = models }
         | _ -> None
 
