@@ -1,5 +1,4 @@
 open System
-open System.Collections.Generic
 open System.Text.Json
 open System.IO
 
@@ -108,15 +107,27 @@ module JsonParser =
             Some { input = input; output = output }
         | None -> None
 
+    let getStatus (element: JsonElement) (key: string) : bool =
+        match parseJsonElement element key with
+        | Some el ->
+            match el.ValueKind with
+            | JsonValueKind.String ->
+                match el.GetString() with
+                | "deprecated" -> false
+                | _ -> true
+            | _ -> true
+        | None -> true
+
     let parseModel (id: string) (element: JsonElement) : ModelInfo option =
         match
+            getStatus element "status",
             getStringValue element "name",
             getStringValue element "family",
             parseCost element,
             parseLimit element,
             parseModalities element
         with
-        | Some name, Some family, Some cost, Some limit, Some modalities ->
+        | true, Some name, Some family, Some cost, Some limit, Some modalities ->
             let reasoning = getBoolValue element "reasoning"
             let tool_call = getBoolValue element "tool_call"
             let open_weights = getBoolValue element "open_weights"

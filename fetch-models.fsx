@@ -132,11 +132,21 @@ let fetchModels (baseUrl: string) (apiKey: string) =
         return content
     }
 
+let requireFixContextOverflow (data: ModelData) (info: Models.ModelInfo) =
+    match info with
+    | _ when info.name.Contains("gemini", StringComparison.OrdinalIgnoreCase) -> true
+    | _ -> false
+
 let normalizeModelId (modelId: string) =
+    let modelId =
+        match modelId with
+        | _ when modelId.Contains "/" -> modelId.Substring(modelId.LastIndexOf '/' + 1)
+        | _ -> modelId
+
     match modelId with
-    | "raptor-mini"
-    | "oswe-vscode-prime" -> "gpt-5-mini"
+    | "copilot/raptor-mini" -> "gpt-5-mini"
     | "kiro-auto" -> "claude-sonnet-4-6"
+    | _ when modelId.EndsWith "-low" || modelId.EndsWith "-high" -> modelId.Substring(0, modelId.LastIndexOf '-')
     | _ when modelId.StartsWith "gemini-claude" -> modelId.Substring("gemini-".Length)
     | _ when modelId.StartsWith "kiro" -> modelId.Substring("kiro-".Length)
     | _ when modelId.EndsWith "-low" || modelId.EndsWith "-high" -> modelId.Substring(0, modelId.LastIndexOf '-')
@@ -186,18 +196,21 @@ let replaceProvidersInConfig (configContent: string) (endpoints: (EndpointConfig
                     else
                         modelNode["name"] <- $"{info.name} ({model.id})"
 
-                    let originalCtx = modelNode.["limit"].["context"].AsValue().GetValue<int>()
-                    let originalOutput = modelNode.["limit"].["output"].AsValue().GetValue<int>()
+                    modelNode.Remove "provider" |> ignore
 
-                    printfn
-                        "Original context: %d, output: %d for model %s (overflow: %b)"
-                        originalCtx
-                        originalOutput
-                        model.id
-                        (originalCtx > 2 * originalOutput)
+                    if requireFixContextOverflow model info then
+                        let originalCtx = modelNode.["limit"].["context"].AsValue().GetValue<int>()
+                        let originalOutput = modelNode.["limit"].["output"].AsValue().GetValue<int>()
 
-                    if originalCtx > 2 * originalOutput then
-                        modelNode["limit"]["context"] <- originalOutput * 2
+                        printfn
+                            "Original context: %d, output: %d for model %s (overflow: %b)"
+                            originalCtx
+                            originalOutput
+                            model.id
+                            (originalCtx > 2 * originalOutput)
+
+                        if originalCtx > 2 * originalOutput then
+                            modelNode["limit"]["context"] <- originalOutput * 2
 
                 | None -> modelNode.["name"] <- model.id
 
