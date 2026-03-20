@@ -20,6 +20,8 @@ jsonOptions.Encoder <- JavaScriptEncoder.UnsafeRelaxedJsonEscaping // 避免中�
 
 let docOptions =
     JsonDocumentOptions(CommentHandling = JsonCommentHandling.Skip, AllowTrailingCommas = true)
+
+let nodeOptions = JsonNodeOptions()
 // Data models for configuration
 [<CLIMutable>]
 type EndpointConfig =
@@ -118,6 +120,32 @@ let getUserConfigPath () =
 // Configuration paths
 let oldConfigPath = getUserConfigPath ()
 let newConfigPath = @"opencode.jsonc"
+
+// Download models.dev API JSON and save to models.json
+let downloadModelsJson () =
+    task {
+        let url = "https://models.dev/api.json"
+        let outputPath = Path.Combine(__SOURCE_DIRECTORY__, "models.json")
+
+        printfn "Downloading models.dev API JSON..."
+
+        use client = new HttpClient()
+
+        try
+            let! response = client.GetAsync url
+            response.EnsureSuccessStatusCode() |> ignore
+
+            let! content = response.Content.ReadAsStringAsync()
+
+            // Parse and re-serialize with indentation
+            let jsonNode = JsonNode.Parse(content, nodeOptions)
+            let formattedJson = jsonNode.ToJsonString jsonOptions
+
+            File.WriteAllText(outputPath, formattedJson)
+            printfn "Saved models.json (%d bytes)" formattedJson.Length
+        with ex ->
+            printfn "Warning: Failed to download models.json: %s" ex.Message
+    }
 
 // Fetch models from API
 let fetchModels (baseUrl: string) (apiKey: string) =
@@ -232,6 +260,9 @@ let replaceProvidersInConfig (configContent: string) (endpoints: (EndpointConfig
 // Main function
 let main () =
     task {
+        // Download latest models.json from models.dev
+        do! downloadModelsJson ()
+
         try
             printfn "Loading configuration from env.json..."
             let config = loadConfig ()
