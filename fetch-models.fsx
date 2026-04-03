@@ -198,7 +198,12 @@ let replaceProvidersInConfig (configContent: string) (endpoints: (EndpointConfig
 
             // Add options
             let optionsNode = JsonObject()
-            optionsNode.["baseURL"] <- endpoint.baseUrl
+
+            if endpoint.npm = "@ai-sdk/open-responses" then
+                optionsNode.["url"] <- endpoint.baseUrl + "/v1/responses"
+            else
+                optionsNode.["baseURL"] <- endpoint.baseUrl + "/v1"
+
             optionsNode.["apiKey"] <- endpoint.apiKey
             providerNode.["options"] <- optionsNode
 
@@ -257,11 +262,31 @@ let replaceProvidersInConfig (configContent: string) (endpoints: (EndpointConfig
         printfn "Error: Failed to process config: %s" ex.Message
         configContent
 
+// Ask for user confirmation with default No
+let askConfirmation (message: string) (defaultYes: bool) =
+    let defaultStr = if defaultYes then "(Y/n)" else "(y/N)"
+    printf "%s %s " message defaultStr
+    let input = Console.ReadLine()
+
+    let normalized =
+        if String.IsNullOrWhiteSpace(input) then
+            ""
+        else
+            input.Trim().ToLower()
+
+    if defaultYes then
+        normalized = "" || normalized = "y" || normalized = "yes"
+    else
+        normalized = "y" || normalized = "yes"
+
 // Main function
 let main () =
     task {
         // Download latest models.json from models.dev
         do! downloadModelsJson ()
+
+        // Collect models from all endpoints
+        let mutable endpointModels = []
 
         try
             printfn "Loading configuration from env.json..."
@@ -269,98 +294,105 @@ let main () =
 
             if config.endpoints.Length = 0 then
                 printfn "Error: No endpoints configured in env.json"
-                return 1
-            else
-                printfn "Found %d endpoint(s) configured\n" config.endpoints.Length
+                Environment.Exit 1
 
-                // Collect models from all endpoints
-                let mutable endpointModels = []
+            printfn "Found %d endpoint(s) configured\n" config.endpoints.Length
 
-                for endpoint in config.endpoints do
-                    printfn "=========================================="
-                    printfn "Processing endpoint: %s" endpoint.name
-                    printfn "URL: %s" endpoint.baseUrl
-                    printfn "=========================================="
+            for endpoint in config.endpoints do
+                printfn "=========================================="
+                printfn "Processing endpoint: %s" endpoint.name
+                printfn "URL: %s" endpoint.baseUrl
+                printfn "=========================================="
 
-                    if String.IsNullOrWhiteSpace(endpoint.apiKey) then
-                        printfn "Warning: API key is empty for endpoint '%s', skipping..." endpoint.name
-                        printfn ""
-                    else
-                        try
-                            printfn "Fetching models from %s/models..." endpoint.baseUrl
-                            let! jsonContent = fetchModels endpoint.baseUrl endpoint.apiKey
-                            let response = JsonSerializer.Deserialize<ModelsResponse>(jsonContent, jsonOptions)
-
-                            printfn "Found %d models before filtering" response.data.Length
-
-                            // Apply filters
-                            let filteredModels =
-                                filterModels response.data endpoint.whitelist endpoint.blacklist
-
-                            printfn "After filtering: %d models" filteredModels.Length
-
-                            if endpoint.whitelist.Length > 0 then
-                                printfn "  Whitelist patterns: %s" (String.Join(", ", endpoint.whitelist))
-
-                            if endpoint.blacklist.Length > 0 then
-                                printfn "  Blacklist patterns: %s" (String.Join(", ", endpoint.blacklist))
-
-                            printfn "\nFiltered models from %s:" endpoint.name
-
-                            filteredModels
-                            |> Array.iter (fun model -> printfn "  - %s (owned by: %s)" model.id model.owned_by)
-
-                            endpointModels <- endpointModels @ [ (endpoint, filteredModels) ]
-                            printfn ""
-                        with ex ->
-                            printfn "Error fetching models from %s: %s" endpoint.name ex.Message
-                            printfn ""
-
-                if endpointModels.Length = 0 then
-                    printfn "Error: No models found from any endpoint"
-                    return 1
+                if String.IsNullOrWhiteSpace(endpoint.apiKey) then
+                    printfn "Warning: API key is empty for endpoint '%s', skipping..." endpoint.name
+                    printfn ""
                 else
-                    let totalModels = endpointModels |> List.sumBy (fun (_, models) -> models.Length)
-                    printfn "=========================================="
-                    printfn "Total models collected: %d" totalModels
-                    printfn "=========================================="
+                    try
+                        printfn "Fetching models from %s/models..." endpoint.baseUrl
+                        let! jsonContent = fetchModels (endpoint.baseUrl + "/v1") endpoint.apiKey
+                        let response = JsonSerializer.Deserialize<ModelsResponse>(jsonContent, jsonOptions)
 
-                    printfn "\nReading old config from: %s" oldConfigPath
+                        printfn "Found %d models before filtering" response.data.Length
 
-                    if not (File.Exists oldConfigPath) then
-                        printfn "Error: Config file not found at %s" oldConfigPath
-                        return 1
-                    else
-                        let oldConfig = File.ReadAllText oldConfigPath
+                        // Apply filters
+                        let filteredModels =
+                            filterModels response.data endpoint.whitelist endpoint.blacklist
 
-                        printfn "Generating new providers configuration..."
-                        let newConfig = replaceProvidersInConfig oldConfig endpointModels
+                        printfn "After filtering: %d models" filteredModels.Length
 
-                        printfn "Writing new config to: %s" newConfigPath
-                        File.WriteAllText(newConfigPath, newConfig)
+                        if endpoint.whitelist.Length > 0 then
+                            printfn "  Whitelist patterns: %s" (String.Join(", ", endpoint.whitelist))
 
-                        printfn "\n=========================================="
-                        printfn "SUCCESS!"
-                        printfn "=========================================="
-                        printfn "New config file created: %s" (Path.GetFullPath(newConfigPath))
-                        printfn "\nGenerated %d provider(s):" endpointModels.Length
+                        if endpoint.blacklist.Length > 0 then
+                            printfn "  Blacklist patterns: %s" (String.Join(", ", endpoint.blacklist))
 
-                        for endpoint, models in endpointModels do
-                            let providerKey = endpoint.key
-                            printfn "  - %s (%d models)" providerKey models.Length
+                        printfn "\nFiltered models from %s:" endpoint.name
 
-                        printfn "\nPlease manually copy this file to:"
-                        printfn "  %s" oldConfigPath
-                        printfn "\nOr run the following command:"
-                        printfn "  copy /Y opencode.jsonc \"%s\"" oldConfigPath
-                        printfn "=========================================="
+                        filteredModels
+                        |> Array.iter (fun model -> printfn "  - %s (owned by: %s)" model.id model.owned_by)
 
-                        return 0
+                        endpointModels <- endpointModels @ [ (endpoint, filteredModels) ]
+                        printfn ""
+                    with ex ->
+                        printfn "Error fetching models from %s: %s" endpoint.name ex.Message
+                        printfn ""
+
         with ex ->
             printfn "Error: %s" ex.Message
-            printfn "Stack trace: %s" ex.StackTrace
-            return 1
+            Environment.Exit 1
+
+        if endpointModels.Length = 0 then
+            printfn "Error: No models found from any endpoint"
+            Environment.Exit 1
+        else
+            let totalModels = endpointModels |> List.sumBy (fun (_, models) -> models.Length)
+            printfn "Total models collected: %d" totalModels
+            printfn "=========================================="
+
+            printfn "\nReading old config from: %s" oldConfigPath
+
+            if not (File.Exists oldConfigPath) then
+                printfn "Error: Config file not found at %s" oldConfigPath
+                Environment.Exit 1
+            else
+                let oldConfig = File.ReadAllText oldConfigPath
+                printfn "Generating new providers configuration..."
+                let newConfig = replaceProvidersInConfig oldConfig endpointModels
+
+                printfn "Writing new config to: %s" newConfigPath
+                File.WriteAllText(newConfigPath, newConfig)
+
+                printfn "\n=========================================="
+                printfn "SUCCESS!"
+                printfn "=========================================="
+                printfn "New config file created: %s" (Path.GetFullPath(newConfigPath))
+                printfn "\nGenerated %d provider(s):" endpointModels.Length
+
+                for endpoint, models in endpointModels do
+                    let providerKey = endpoint.key
+                    printfn "  - %s (%d models)" providerKey models.Length
+
+                printfn "\nDo you want to replace the existing config file at:"
+                printfn "  %s" oldConfigPath
+                let overwrite = askConfirmation "(y/N)?" false
+
+                if overwrite then
+                    try
+                        File.Copy(newConfigPath, oldConfigPath, true)
+                        printfn "Successfully replaced %s" oldConfigPath
+                    with ex ->
+                        printfn "Failed to replace config file: %s" ex.Message
+                        printfn "Please manually copy the file:"
+                        printfn "  copy /Y opencode.jsonc \"%s\"" oldConfigPath
+                else
+                    printfn "Config file not replaced."
+                    printfn "\nPlease manually copy this file to:"
+                    printfn "  %s" oldConfigPath
+                    printfn "\nOr run the following command:"
+                    printfn "  copy /Y opencode.jsonc \"%s\"" oldConfigPath
+                    printfn "=========================================="
     }
 
 // Run
-main().Result |> exit
+main().Result |> ignore
