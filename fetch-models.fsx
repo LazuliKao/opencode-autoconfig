@@ -230,6 +230,7 @@ let replaceProvidersInConfig (configContent: string) (endpoints: (EndpointConfig
                         modelNode["name"] <- $"{info.name} ({model.id})"
 
                     modelNode.Remove "provider" |> ignore
+                    modelNode.Remove "experimental" |> ignore
 
                     if requireFixContextOverflow model info then
                         let originalCtx = modelNode.["limit"].["context"].AsValue().GetValue<int>()
