@@ -127,6 +127,14 @@ let downloadModelsJson () =
         let url = "https://models.dev/api.json"
         let outputPath = Path.Combine(__SOURCE_DIRECTORY__, "models.json")
 
+        // 检查文件是否存在且修改时间不足 1 天
+        if File.Exists outputPath then
+            let fileAge = DateTime.Now - File.GetLastWriteTime outputPath
+
+            if fileAge.TotalHours < 24.0 then
+                printfn "models.json 最后更新于 %.1f 小时前，跳过下载 (将在 %.1f 小时后更新)" fileAge.TotalHours (24.0 - fileAge.TotalHours)
+                return ()
+
         printfn "Downloading models.dev API JSON..."
 
         use client = new HttpClient()
@@ -376,7 +384,7 @@ let main () =
 
                 printfn "\nDo you want to replace the existing config file at:"
                 printfn "  %s" oldConfigPath
-                let overwrite = askConfirmation "(y/N)?" false
+                let overwrite = askConfirmation "替换文件?" false
 
                 if overwrite then
                     try
