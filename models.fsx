@@ -24,6 +24,65 @@ type ModelInfo =
       open_weights: bool
       release_date: string option }
 
+// 推理参数类型
+type ThinkingParams =
+    {
+        ``type``: string
+        budgetTokens: int option
+    }
+type ReasoningParams =
+    { reasoningEffort: string option
+      textVerbosity: string option
+      reasoningSummary: string option}
+
+type ModelVariantOption =
+    | ReasoningEffort of string
+    | TextVerbosity of string
+    | ReasoningSummary of string
+    | Include of string list
+
+type ModelVariants =
+    { thinking: ReasoningParams
+      variants: ReasoningParams list
+      options: ModelVariantOption list
+       }
+
+type VariantParams = ModelVariants option
+
+/// <summary>获取模型的推理参数</summary>
+/// <param name="model">模型</param>
+/// <returns></returns>
+let getReasoningParams (model: ModelInfo) : VariantParams =
+    let id = model.id.ToLowerInvariant()
+    let name = model.name.ToLowerInvariant()
+    let family = model.family.ToLowerInvariant()
+    let (!=) (m: string) = id = m
+    let (!<) (m: string) = id.Contains m
+    let (!@) (f: string) = f = family
+    let (!@<) (f: string) = family.Contains f
+
+    match model with
+    | _ when family.Contains "claude" && (!<"4" || !<"sonnet" || !<"opus") ->
+        Some
+            { thinking =
+                { reasoningEffort = "high"
+                  textVerbosity = "low"
+                  reasoningSummary = "auto" }
+              variants = []
+              options = [] }
+
+    | _ -> None
+// if family.Contains "claude" && (!< "4" || !< "sonnet" || !< "opus") then
+//     Some { reasoningEffort = "high"; textVerbosity = "low"; reasoningSummary = "auto" }
+// elif !< "gemini" && (model.reasoning || name.Contains "thinking") then
+//     Some { reasoningEffort = "high"; textVerbosity = "low"; reasoningSummary = "auto" }
+// elif family.Contains "qwen" && (!< "thinking" || !< "a3b") then
+//     Some { reasoningEffort = "high"; textVerbosity = "low"; reasoningSummary = "auto" }
+// elif !< "gpt-4o" || !< "gpt-5" then
+//     Some { reasoningEffort = "medium"; textVerbosity = "low"; reasoningSummary = "auto" }
+// else
+//     None
+
 type ProviderModels =
     { id: string
       name: string

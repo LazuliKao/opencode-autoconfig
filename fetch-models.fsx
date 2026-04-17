@@ -254,7 +254,56 @@ let replaceProvidersInConfig (configContent: string) (endpoints: (EndpointConfig
                         if originalCtx > 2 * originalOutput then
                             modelNode["limit"]["context"] <- originalOutput * 2
 
+                    match Models.getReasoningParams info with
+                    | Some rp ->
+                        let variantsNode = JsonObject()
+                        variantsNode.["default"] <- JsonObject()
+                        variantsNode.["default"].["reasoningEffort"] <- rp.def.reasoningEffort
+                        variantsNode.["default"].["textVerbosity"] <- rp.def.textVerbosity
+                        variantsNode.["default"].["reasoningSummary"] <- rp.def.reasoningSummary
+                        modelNode.["variants"] <- variantsNode
+                        // "openai": {
+                        //   "models": {
+                        //     "gpt-5": {
+                        //       "options": {
+                        //         "reasoningEffort": "high",
+                        //         "textVerbosity": "low",
+                        //         "reasoningSummary": "auto",
+                        //         "include": ["reasoning.encrypted_content"]
+                        //       }
+                        //     }
+                        //   }
+                        // },
+                        // "anthropic": {
+                        //   "models": {
+                        //     "claude-sonnet-4-5-20250929": {
+                        //       "options": {
+                        //         "thinking": {
+                        //           "type": "enabled",
+                        //           "budgetTokens": 16000
+                        //         }
+                        //       }
+                        //     }
+                        //   }
+                        // }
+                        //
+                        //"gpt-5": {
+                        //   "variants": {
+                        //     "high": {
+                        //       "reasoningEffort": "high",
+                        //       "textVerbosity": "low",
+                        //       "reasoningSummary": "auto"
+                        //     },
+                        //     "low": {
+                        //       "reasoningEffort": "low",
+                        //       "textVerbosity": "low",
+                        //       "reasoningSummary": "auto"
+                        //     }
+                        //   }
+                        // }
+                    | None -> ()
                 | None -> modelNode.["name"] <- model.id
+                    // 生成 variant
 
                 modelsNode.[model.id] <- modelNode
 
