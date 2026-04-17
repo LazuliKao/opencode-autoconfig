@@ -26,28 +26,23 @@ type ModelInfo =
 
 // 推理参数类型
 type ThinkingParams =
-    {
-        ``type``: string
-        budgetTokens: int option
-    }
-type ReasoningParams =
-    { reasoningEffort: string option
+    { ``type``: string
+      budgetTokens: int option }
+
+type ModelOptions =
+    { thinking: ThinkingParams option
+      reasoningEffort: string option
       textVerbosity: string option
-      reasoningSummary: string option}
+      reasoningSummary: string option
+      ``include``: string list option }
 
-type ModelVariantOption =
-    | ReasoningEffort of string
-    | TextVerbosity of string
-    | ReasoningSummary of string
-    | Include of string list
+type ModelVariant = { name: string; options: ModelOptions }
 
-type ModelVariants =
-    { thinking: ReasoningParams
-      variants: ReasoningParams list
-      options: ModelVariantOption list
-       }
+type ModelConfig =
+    { options: ModelOptions option
+      variants: ModelVariant list }
 
-type VariantParams = ModelVariants option
+type VariantParams = ModelConfig option
 
 /// <summary>获取模型的推理参数</summary>
 /// <param name="model">模型</param>
@@ -61,15 +56,135 @@ let getReasoningParams (model: ModelInfo) : VariantParams =
     let (!@) (f: string) = f = family
     let (!@<) (f: string) = family.Contains f
 
+    let gptNone =
+        { name = "none"
+          options =
+            { thinking = None
+              reasoningEffort = None
+              textVerbosity = None
+              reasoningSummary = None
+              ``include`` = None } }
+
+    let gptLow =
+        { name = "low"
+          options =
+            { thinking = None
+              reasoningEffort = Some "low"
+              textVerbosity = Some "low"
+              reasoningSummary = Some "auto"
+              ``include`` = None } }
+
+    let gptMinimal =
+        { name = "minimal"
+          options =
+            { thinking = None
+              reasoningEffort = Some "minimal"
+              textVerbosity = Some "low"
+              reasoningSummary = Some "auto"
+              ``include`` = None } }
+
+    let gptMedium =
+        { name = "medium"
+          options =
+            { thinking = None
+              reasoningEffort = Some "medium"
+              textVerbosity = Some "low"
+              reasoningSummary = Some "auto"
+              ``include`` = None } }
+
+    let gptHigh =
+        { name = "high"
+          options =
+            { thinking = None
+              reasoningEffort = Some "high"
+              textVerbosity = Some "low"
+              reasoningSummary = Some "auto"
+              ``include`` = None } }
+
+    let gptXHigh =
+        { name = "xhigh"
+          options =
+            { thinking = None
+              reasoningEffort = Some "xhigh"
+              textVerbosity = Some "low"
+              reasoningSummary = Some "auto"
+              ``include`` = None } }
+
+    let thinkingNone =
+        { name = "none"
+          options =
+            { thinking =
+                Some
+                    { ``type`` = "disabled"
+                      budgetTokens = None }
+              reasoningEffort = None
+              textVerbosity = None
+              reasoningSummary = None
+              ``include`` = None } }
+
+    let thinkingLow =
+        { name = "low"
+          options =
+            { thinking =
+                Some
+                    { ``type`` = "enabled"
+                      budgetTokens = Some 8000 }
+              reasoningEffort = None
+              textVerbosity = None
+              reasoningSummary = None
+              ``include`` = None } }
+
+    let thinkingHigh =
+        { name = "high"
+          options =
+            { thinking =
+                Some
+                    { ``type`` = "enabled"
+                      budgetTokens = Some 16000 }
+              reasoningEffort = None
+              textVerbosity = None
+              reasoningSummary = None
+              ``include`` = None } }
+
     match model with
     | _ when family.Contains "claude" && (!<"4" || !<"sonnet" || !<"opus") ->
         Some
-            { thinking =
-                { reasoningEffort = "high"
-                  textVerbosity = "low"
-                  reasoningSummary = "auto" }
-              variants = []
-              options = [] }
+            { options =
+                Some
+                    { thinking =
+                        Some
+                            { ``type`` = "enabled"
+                              budgetTokens = Some 16000 }
+                      reasoningEffort = None
+                      textVerbosity = None
+                      reasoningSummary = None
+                      ``include`` = None }
+              variants = [] }
+
+    | _ when !<"gpt-5" && (!<"gpt-5.3-codex" || !<"gpt-5.4") ->
+        Some
+            { options =
+                Some
+                    { thinking = None
+                      reasoningEffort = gptMedium.options.reasoningEffort
+                      textVerbosity = None
+                      reasoningSummary = None
+                      ``include`` = None }
+              variants = [ gptNone; gptMinimal; gptLow; gptMedium; gptHigh; gptXHigh ] }
+    | _ when !<"gpt-5" ->
+        Some
+            { options =
+                Some
+                    { thinking = None
+                      reasoningEffort = Some "high"
+                      textVerbosity = Some "low"
+                      reasoningSummary = Some "auto"
+                      ``include`` = None }
+              variants = [] }
+    | _ when !<"minimax-m2" ->
+        Some
+            { options = None
+              variants = [ thinkingNone; thinkingLow; thinkingHigh ] }
 
     | _ -> None
 // if family.Contains "claude" && (!< "4" || !< "sonnet" || !< "opus") then

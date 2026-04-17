@@ -137,7 +137,7 @@ let downloadModelsJson () =
 
         printfn "Downloading models.dev API JSON..."
 
-        use client = new HttpClient()
+        use client = new HttpClient(Timeout = TimeSpan.FromSeconds 60.0)
 
         try
             let! response = client.GetAsync url
@@ -187,6 +187,48 @@ let normalizeModelId (modelId: string) =
     | _ when modelId.StartsWith "kiro" -> modelId.Substring("kiro-".Length)
     | _ when modelId.EndsWith "-low" || modelId.EndsWith "-high" -> modelId.Substring(0, modelId.LastIndexOf '-')
     | _ -> modelId
+
+let setOptionalString (node: JsonObject) (key: string) (value: string option) =
+    match value with
+    | Some v -> node.[key] <- v
+    | None -> ()
+
+let setOptionalStringList (node: JsonObject) (key: string) (value: string list option) =
+    match value with
+    | Some values ->
+        let items = JsonArray()
+        values |> List.iter items.Add
+        node.[key] <- items
+    | None -> ()
+
+let buildModelOptionsNode (options: Models.ModelOptions) =
+    let optionsNode = JsonObject()
+
+    match options.thinking with
+    | Some thinking ->
+        let thinkingNode = JsonObject()
+        thinkingNode.["type"] <- thinking.``type``
+
+        match thinking.budgetTokens with
+        | Some budgetTokens -> thinkingNode.["budgetTokens"] <- budgetTokens
+        | None -> ()
+
+        optionsNode.["thinking"] <- thinkingNode
+    | None -> ()
+
+    setOptionalString optionsNode "reasoningEffort" options.reasoningEffort
+    setOptionalString optionsNode "textVerbosity" options.textVerbosity
+    setOptionalString optionsNode "reasoningSummary" options.reasoningSummary
+    setOptionalStringList optionsNode "include" options.``include``
+    optionsNode
+
+let buildVariantsNode (variants: Models.ModelVariant list) =
+    let variantsNode = JsonObject()
+
+    variants
+    |> List.iter (fun variant -> variantsNode.[variant.name] <- buildModelOptionsNode variant.options)
+
+    variantsNode
 // Replace providers section in config using JsonNode
 let replaceProvidersInConfig (configContent: string) (endpoints: (EndpointConfig * ModelData[]) list) =
     try
@@ -256,51 +298,17 @@ let replaceProvidersInConfig (configContent: string) (endpoints: (EndpointConfig
 
                     match Models.getReasoningParams info with
                     | Some rp ->
-                        let variantsNode = JsonObject()
-                        variantsNode.["default"] <- JsonObject()
-                        variantsNode.["default"].["reasoningEffort"] <- rp.def.reasoningEffort
-                        variantsNode.["default"].["textVerbosity"] <- rp.def.textVerbosity
-                        variantsNode.["default"].["reasoningSummary"] <- rp.def.reasoningSummary
-                        modelNode.["variants"] <- variantsNode
-                        // "openai": {
-                        //   "models": {
-                        //     "gpt-5": {
-                        //       "options": {
-                        //         "reasoningEffort": "high",
-                        //         "textVerbosity": "low",
-                        //         "reasoningSummary": "auto",
-                        //         "include": ["reasoning.encrypted_content"]
-                        //       }
-                        //     }
-                        //   }
-                        // },
-                        // "anthropic": {
-                        //   "models": {
-                        //     "claude-sonnet-4-5-20250929": {
-                        //       "options": {
-                        //         "thinking": {
-                        //           "type": "enabled",
-                        //           "budgetTokens": 16000
-                        //         }
-                        //       }
-                        //     }
-                        //   }
-                        // }
-                        //
-                        //"gpt-5": {
-                        //   "variants": {
-                        //     "high": {
-                        //       "reasoningEffort": "high",
-                        //       "textVerbosity": "low",
-                        //       "reasoningSummary": "auto"
-                        //     },
-                        //     "low": {
-                        //       "reasoningEffort": "low",
-                        //       "textVerbosity": "low",
-                        //       "reasoningSummary": "auto"
-                        //     }
-                        //   }
-                        // }
+                        match rp.options with
+                        | Some options ->
+                            let optionsNode = buildModelOptionsNode options
+
+                            if optionsNode.Count > 0 then
+                                modelNode.["options"] <- optionsNode
+                        | _ -> ()
+
+                        match rp.variants with
+                        | variants when not variants.IsEmpty -> modelNode.["variants"] <- buildVariantsNode variants
+                        | _ -> ()
                     | None -> ()
                 | None -> modelNode.["name"] <- model.id
                     // 生成 variant
