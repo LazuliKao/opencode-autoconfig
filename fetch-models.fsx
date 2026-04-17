@@ -133,26 +133,44 @@ let downloadModelsJson () =
 
             if fileAge.TotalHours < 24.0 then
                 printfn "models.json 最后更新于 %.1f 小时前，跳过下载 (将在 %.1f 小时后更新)" fileAge.TotalHours (24.0 - fileAge.TotalHours)
-                return ()
+            else
+                printfn "Downloading models.dev API JSON..."
 
-        printfn "Downloading models.dev API JSON..."
+                use client = new HttpClient(Timeout = TimeSpan.FromSeconds 60.0)
 
-        use client = new HttpClient(Timeout = TimeSpan.FromSeconds 60.0)
+                try
+                    let! response = client.GetAsync url
+                    response.EnsureSuccessStatusCode() |> ignore
 
-        try
-            let! response = client.GetAsync url
-            response.EnsureSuccessStatusCode() |> ignore
+                    let! content = response.Content.ReadAsStringAsync()
 
-            let! content = response.Content.ReadAsStringAsync()
+                    // Parse and re-serialize with indentation
+                    let jsonNode = JsonNode.Parse(content, nodeOptions)
+                    let formattedJson = jsonNode.ToJsonString jsonOptions
 
-            // Parse and re-serialize with indentation
-            let jsonNode = JsonNode.Parse(content, nodeOptions)
-            let formattedJson = jsonNode.ToJsonString jsonOptions
+                    File.WriteAllText(outputPath, formattedJson)
+                    printfn "Saved models.json (%d bytes)" formattedJson.Length
+                with ex ->
+                    printfn "Warning: Failed to download models.json: %s" ex.Message
+        else
+            printfn "Downloading models.dev API JSON..."
 
-            File.WriteAllText(outputPath, formattedJson)
-            printfn "Saved models.json (%d bytes)" formattedJson.Length
-        with ex ->
-            printfn "Warning: Failed to download models.json: %s" ex.Message
+            use client = new HttpClient(Timeout = TimeSpan.FromSeconds 60.0)
+
+            try
+                let! response = client.GetAsync url
+                response.EnsureSuccessStatusCode() |> ignore
+
+                let! content = response.Content.ReadAsStringAsync()
+
+                // Parse and re-serialize with indentation
+                let jsonNode = JsonNode.Parse(content, nodeOptions)
+                let formattedJson = jsonNode.ToJsonString jsonOptions
+
+                File.WriteAllText(outputPath, formattedJson)
+                printfn "Saved models.json (%d bytes)" formattedJson.Length
+            with ex ->
+                printfn "Warning: Failed to download models.json: %s" ex.Message
     }
 
 // Fetch models from API
