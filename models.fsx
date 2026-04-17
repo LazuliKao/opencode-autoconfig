@@ -478,6 +478,62 @@ module ModelQuery =
             | Some model -> Some model
             | None -> queryModelByIdStartOrEnd providers query
 
+    /// 按关键字优先级查询模型
+    /// 根据modelId中的关键字优先从对应provider中查找
+    let queryModelByKeywordPriority (providers: ProviderModels list) (modelId: string) (priorityProviders: string list) (threshold: float) : ModelInfo option =
+        // 从优先级provider中查找
+        let priorityModels =
+            providers
+            |> List.filter (fun p -> priorityProviders |> List.exists (fun pp -> p.id.Equals(pp, StringComparison.OrdinalIgnoreCase)))
+            |> List.collect (fun p -> p.models)
+
+        // 先尝试精确匹配
+        match priorityModels |> List.tryFind (fun m -> m.id.Equals(modelId, StringComparison.OrdinalIgnoreCase)) with
+        | Some model -> Some model
+        | None ->
+            // 然后尝试名称模糊匹配
+            let candidates = priorityModels |> List.map (fun m -> m.name, m)
+            match FuzzyMatch.findBestMatch modelId candidates threshold with
+            | Some model -> Some model
+            | None ->
+                // 最后尝试前缀/后缀匹配
+                match priorityModels |> List.tryFind (fun m ->
+                    m.id.StartsWith(modelId, StringComparison.OrdinalIgnoreCase)
+                    || m.id.EndsWith(modelId, StringComparison.OrdinalIgnoreCase)) with
+                | Some model -> Some model
+                | None ->
+                    // 如果优先级provider没找到，回退到普通查询
+                    getModelInfo providers modelId threshold
+
+    /// 根据modelId自动推断provider优先级并查询
+    /// 关键字到provider的映射
+    let autoQueryModelWithPriority (providers: ProviderModels list) (modelId: string) (threshold: float) : ModelInfo option =
+        let keywordToProvider =
+            [ ["gpt-"; "chatgpt"], "openai"
+              ["claude-"; "sonnet"; "haiku"; "opus"], "anthropic"
+              ["gemini-"], "google"
+              ["gemini"], "google"
+              ["grok-"], "xai"
+              ["mistral-"], "mistral"
+              ["llama-"], "meta"
+              ["qwen-"], "qwen"
+              ["deepseek-"], "deepseek"
+              ["o1-"; "o3-"; "o4-"], "openai" ]
+
+        // 查找匹配的关键字对应的provider
+        let rec findPriorityProvider keywordsAndProviders =
+            match keywordsAndProviders with
+            | (keywords, provider) :: rest ->
+                if keywords |> List.exists (fun kw -> modelId.StartsWith(kw, StringComparison.OrdinalIgnoreCase)) then
+                    Some provider
+                else
+                    findPriorityProvider rest
+            | [] -> None
+
+        match findPriorityProvider keywordToProvider with
+        | Some provider -> queryModelByKeywordPriority providers modelId [provider] threshold
+        | None -> getModelInfo providers modelId threshold
+
     /// 拼接成本计算（输入tokens数 + 输出tokens数）
     let calculateCost (model: ModelInfo) (inputTokens: int) (outputTokens: int) : float =
         let inputCost = float inputTokens / 1000.0 * model.cost.input
@@ -510,6 +566,13 @@ let initializeModels () =
 let queryModel (query: string) (threshold: float) : ModelInfo option =
     let providers = initializeModels ()
     ModelQuery.getModelInfo providers query threshold
+
+/// 自动按关键字优先级查询模型（推荐使用）
+/// 根据modelId中的关键字自动推断provider并优先查找
+/// 例如: "gpt-4o" 会优先从openai provider查找
+let queryModelWithPriority (query: string) (threshold: float) : ModelInfo option =
+    let providers = initializeModels ()
+    ModelQuery.autoQueryModelWithPriority providers query threshold
 
 /// 查询模型成本（返回元组: inputCost, outputCost）
 let getModelCost (modelQuery: string) (threshold: float) : (float * float) option =

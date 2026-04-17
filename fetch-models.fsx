@@ -281,7 +281,7 @@ let replaceProvidersInConfig (configContent: string) (endpoints: (EndpointConfig
             for model in models do
                 let mutable modelNode = JsonObject()
 
-                match Models.queryModel (normalizeModelId model.id) 0.75 with
+                match Models.queryModelWithPriority (normalizeModelId model.id) 0.75 with
                 | Some info ->
                     modelNode <- JsonNode.Parse(info.raw.GetRawText(), JsonNodeOptions(), docOptions).AsObject()
                     modelNode.["id"] <- model.id
