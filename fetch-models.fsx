@@ -267,10 +267,10 @@ let replaceProvidersInConfig (configContent: string) (endpoints: (EndpointConfig
             // Add options
             let optionsNode = JsonObject()
 
-            if endpoint.npm = "@ai-sdk/open-responses" then
-                optionsNode.["url"] <- endpoint.baseUrl + "/v1/responses"
-            else
-                optionsNode.["baseURL"] <- endpoint.baseUrl + "/v1"
+            match endpoint.npm with
+            | "@ai-sdk/open-responses" -> optionsNode.["url"] <- endpoint.baseUrl + "/v1/responses"
+            | "@ai-sdk/google" -> optionsNode.["baseURL"] <- endpoint.baseUrl + "/v1beta"
+            | _ -> optionsNode.["baseURL"] <- endpoint.baseUrl + "/v1"
 
             optionsNode.["apiKey"] <- endpoint.apiKey
             providerNode.["options"] <- optionsNode
@@ -329,7 +329,7 @@ let replaceProvidersInConfig (configContent: string) (endpoints: (EndpointConfig
                         | _ -> ()
                     | None -> ()
                 | None -> modelNode.["name"] <- model.id
-                    // 生成 variant
+                // 生成 variant
 
                 modelsNode.[model.id] <- modelNode
 
