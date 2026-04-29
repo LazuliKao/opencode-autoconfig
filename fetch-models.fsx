@@ -188,8 +188,9 @@ let fetchModels (baseUrl: string) (apiKey: string) =
 
 let requireFixContextOverflow (data: ModelData) (info: Models.ModelInfo) =
     match info with
-    | _ when info.name.Contains("gemini", StringComparison.OrdinalIgnoreCase) -> true
-    | _ -> false
+    | _ when info.name.Contains("mimo", StringComparison.OrdinalIgnoreCase) -> Some 70000
+    | _ when info.name.Contains("gemini", StringComparison.OrdinalIgnoreCase) -> Some -1
+    | _ -> None
 
 let normalizeModelId (modelId: string) =
     let modelId =
@@ -300,19 +301,23 @@ let replaceProvidersInConfig (configContent: string) (endpoints: (EndpointConfig
                     modelNode.Remove "provider" |> ignore
                     modelNode.Remove "experimental" |> ignore
 
-                    if requireFixContextOverflow model info then
+                    match requireFixContextOverflow model info with
+                    | None -> ()
+                    | Some limit ->
+
                         let originalCtx = modelNode.["limit"].["context"].AsValue().GetValue<int>()
                         let originalOutput = modelNode.["limit"].["output"].AsValue().GetValue<int>()
+                        let limit = if limit > 0 then limit else originalCtx * 2
 
                         printfn
                             "Original context: %d, output: %d for model %s (overflow: %b)"
                             originalCtx
                             originalOutput
                             model.id
-                            (originalCtx > 2 * originalOutput)
+                            (limit > originalCtx)
 
                         if originalCtx > 2 * originalOutput then
-                            modelNode["limit"]["context"] <- originalOutput * 2
+                            modelNode["limit"]["context"] <- limit
 
                     match Models.getReasoningParams info with
                     | Some rp ->
