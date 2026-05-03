@@ -186,11 +186,16 @@ let fetchModels (baseUrl: string) (apiKey: string) =
         return content
     }
 
+type ContextOverflowType =
+    | Default
+    | Fixed of int
+    | DoubleOutput
+
 let requireFixContextOverflow (data: ModelData) (info: Models.ModelInfo) =
     match info with
-    | _ when info.name.Contains("mimo", StringComparison.OrdinalIgnoreCase) -> Some 70000
-    | _ when info.name.Contains("gemini", StringComparison.OrdinalIgnoreCase) -> Some -1
-    | _ -> None
+    | _ when info.name.Contains("mimo", StringComparison.OrdinalIgnoreCase) -> Fixed 150000
+    | _ when info.name.Contains("gemini", StringComparison.OrdinalIgnoreCase) -> DoubleOutput
+    | _ -> Default
 
 let normalizeModelId (modelId: string) =
     let modelId =
@@ -302,12 +307,11 @@ let replaceProvidersInConfig (configContent: string) (endpoints: (EndpointConfig
                     modelNode.Remove "experimental" |> ignore
 
                     match requireFixContextOverflow model info with
-                    | None -> ()
-                    | Some limit ->
-
+                    | Default -> ()
+                    | DoubleOutput ->
                         let originalCtx = modelNode.["limit"].["context"].AsValue().GetValue<int>()
                         let originalOutput = modelNode.["limit"].["output"].AsValue().GetValue<int>()
-                        let limit = if limit > 0 then limit else originalCtx * 2
+                        let limit = originalCtx * 2
 
                         printfn
                             "Original context: %d, output: %d for model %s (overflow: %b)"
@@ -318,6 +322,16 @@ let replaceProvidersInConfig (configContent: string) (endpoints: (EndpointConfig
 
                         if originalCtx > 2 * originalOutput then
                             modelNode["limit"]["context"] <- limit
+                    | Fixed limit ->
+                        let originalCtx = modelNode.["limit"].["context"].AsValue().GetValue<int>()
+                        let originalOutput = modelNode.["limit"].["output"].AsValue().GetValue<int>()
+
+                        printfn
+                            "Original context: %d, output: %d for model %s (overflow: %b)"
+                            originalCtx
+                            originalOutput
+                            model.id
+                            (limit > originalCtx)
 
                     match Models.getReasoningParams info with
                     | Some rp ->
