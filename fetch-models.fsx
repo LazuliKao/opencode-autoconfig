@@ -396,7 +396,7 @@ let generateOmpModelsYml (endpoints: (EndpointConfig * ModelData[]) list) =
     for endpoint, models in endpoints do
         let apiType = getOmpApiType endpoint.npm
         sb.AppendLine $"  {endpoint.key}:" |> ignore
-        sb.AppendLine $"    baseUrl: {endpoint.baseUrl}" |> ignore
+        sb.AppendLine $"    baseUrl: {endpoint.baseUrl}/v1" |> ignore
         sb.AppendLine $"    apiKey: {endpoint.apiKey}" |> ignore
         sb.AppendLine $"    api: {apiType}" |> ignore
 
