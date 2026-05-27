@@ -22,5 +22,6 @@ obj/
 Thumbs.db
 opencode.jsonc
 
+models.yml
 .fake
 models.json

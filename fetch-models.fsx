@@ -364,6 +364,75 @@ let replaceProvidersInConfig (configContent: string) (endpoints: (EndpointConfig
     with ex ->
         printfn "Error: Failed to process config: %s" ex.Message
         configContent
+// Get OMP config path (~/.omp/agent/models.yml)
+let getOmpConfigPath () =
+    let userProfile =
+        match Environment.GetEnvironmentVariable "USERPROFILE" with
+        | null
+        | "" ->
+            match Environment.GetEnvironmentVariable "HOME" with
+            | null
+            | "" -> Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)
+            | home -> home
+        | profile -> profile
+
+    Path.Combine(userProfile, ".omp", "agent", "models.yml")
+
+// Map npm package name to OMP API identifier
+let getOmpApiType (npm: string) =
+    match npm with
+    | "@ai-sdk/openai" -> "openai-responses"
+    | "@ai-sdk/openai-compatible" -> "openai-completions"
+    | "@ai-sdk/anthropic" -> "anthropic-messages"
+    | "@ai-sdk/google" -> "google-generative-ai"
+    | _ -> "openai-completions"
+
+// Generate OMP models.yml content from endpoint data
+let generateOmpModelsYml (endpoints: (EndpointConfig * ModelData[]) list) =
+    let sb = Text.StringBuilder()
+
+    sb.AppendLine "providers:" |> ignore
+
+    for endpoint, models in endpoints do
+        let apiType = getOmpApiType endpoint.npm
+        sb.AppendLine $"  {endpoint.key}:" |> ignore
+        sb.AppendLine $"    baseUrl: {endpoint.baseUrl}" |> ignore
+        sb.AppendLine $"    apiKey: {endpoint.apiKey}" |> ignore
+        sb.AppendLine $"    api: {apiType}" |> ignore
+
+        if models.Length > 0 then
+            sb.AppendLine "    models:" |> ignore
+
+            for model in models do
+                sb.AppendLine $"      - id: {model.id}" |> ignore
+
+                match Models.queryModelWithPriority (normalizeModelId model.id) 0.75 with
+                | Some info ->
+                    sb.AppendLine $"        name: {info.name}" |> ignore
+                    sb.AppendLine $"        reasoning: {info.reasoning.ToString().ToLower()}" |> ignore
+                    let inputStr = info.modalities.input |> List.filter (fun m -> m = "text" || m = "image") |> String.concat ", "
+                    sb.AppendLine $"        input: [{inputStr}]" |> ignore
+                    sb.AppendLine $"        cost:" |> ignore
+                    sb.AppendLine $"          input: {info.cost.input}" |> ignore
+                    sb.AppendLine $"          output: {info.cost.output}" |> ignore
+                    sb.AppendLine $"          cacheRead: 0" |> ignore
+                    sb.AppendLine $"          cacheWrite: 0" |> ignore
+                    sb.AppendLine $"        contextWindow: {info.limit.context}" |> ignore
+                    sb.AppendLine $"        maxTokens: {info.limit.output}" |> ignore
+                | None ->
+                    sb.AppendLine $"        name: {model.id}" |> ignore
+                    sb.AppendLine $"        reasoning: false" |> ignore
+                    sb.AppendLine $"        input: [text]" |> ignore
+                    sb.AppendLine $"        cost:" |> ignore
+                    sb.AppendLine $"          input: 0" |> ignore
+                    sb.AppendLine $"          output: 0" |> ignore
+                    sb.AppendLine $"          cacheRead: 0" |> ignore
+                    sb.AppendLine $"          cacheWrite: 0" |> ignore
+                    sb.AppendLine $"        contextWindow: 128000" |> ignore
+                    sb.AppendLine $"        maxTokens: 16384" |> ignore
+
+    sb.ToString()
+
 
 // Ask for user confirmation with default No
 let askConfirmation (message: string) (defaultYes: bool) =
@@ -465,6 +534,31 @@ let main () =
 
                 printfn "Writing new config to: %s" newConfigPath
                 File.WriteAllText(newConfigPath, newConfig)
+                // Generate OMP models.yml
+                printfn "\nGenerating OMP models.yml..."
+                let ompYml = generateOmpModelsYml endpointModels
+                let ompLocalPath = "models.yml"
+                File.WriteAllText(ompLocalPath, ompYml)
+                printfn "OMP models.yml written to: %s" (Path.GetFullPath ompLocalPath)
+
+                let ompConfigPath = getOmpConfigPath ()
+                printfn "\nDo you want to deploy OMP config to:"
+                printfn "  %s" ompConfigPath
+                let deployOmp = askConfirmation "部署 OMP models.yml?" false
+
+                if deployOmp then
+                    let ompConfigDir = Path.GetDirectoryName ompConfigPath
+                    if not (Directory.Exists ompConfigDir) then
+                        Directory.CreateDirectory ompConfigDir |> ignore
+                    File.WriteAllText(ompConfigPath, ompYml)
+                    printfn "Successfully deployed OMP models.yml to: %s" ompConfigPath
+                else
+                    printfn "OMP models.yml not deployed."
+                    printfn "\nPlease manually copy this file to:"
+                    printfn "  %s" ompConfigPath
+                    printfn "\nOr run the following command:"
+                    printfn "  copy /Y models.yml \"%s\"" ompConfigPath
+
 
                 printfn "\n=========================================="
                 printfn "SUCCESS!"
