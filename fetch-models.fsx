@@ -193,7 +193,7 @@ type ContextOverflowType =
 
 let requireFixContextOverflow (data: ModelData) (info: Models.ModelInfo) =
     match info with
-    | _ when info.name.Contains("mimo", StringComparison.OrdinalIgnoreCase) -> Fixed 150000
+    | _ when info.name.Contains("mimo", StringComparison.OrdinalIgnoreCase) -> Fixed 200000
     | _ when info.name.Contains("gemini", StringComparison.OrdinalIgnoreCase) -> DoubleOutput
     | _ -> Default
 
